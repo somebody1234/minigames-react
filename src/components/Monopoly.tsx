@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { uniqueNamesGenerator, countries } from "unique-names-generator";
 
+// FIXME: jail square
+
 interface Player {
   name: string;
   token: string;
@@ -139,9 +141,7 @@ function rollDie() {
   return 1 + Math.floor(Math.random() * 6);
 }
 
-function rollDice() {
-  return rollDie() + rollDie();
-}
+const DIE_EMOJIS = ["", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"];
 
 function canBuyProperty(player: Player, players: Player[], property: Property) {
   return (
@@ -188,7 +188,10 @@ function PropertyCount({ property }: { property: OwnedProperty }) {
 
 export default function Monopoly() {
   const [board] = useState(DEFAULT_BOARD);
-  const [movedThisTurn, setMovedThisTurn] = useState(false);
+  const [rollsThisTurn, setRollsThisTurn] = useState(0);
+  const [canRoll, setCanRoll] = useState(true);
+  const [die1, setDie1] = useState<number | null>(null);
+  const [die2, setDie2] = useState<number | null>(null);
   const [players, setPlayers] = useState<Player[]>([
     { name: "alice", token: "🥶", location: 0, money: 1500, properties: [] },
     { name: "bob", token: "😎", location: 0, money: 1500, properties: [] },
@@ -210,7 +213,11 @@ export default function Monopoly() {
 
   const movePlayer = useCallback(
     (index: number) => {
-      const spaces = rollDice();
+      const die1 = rollDie();
+      setDie1(die1);
+      const die2 = rollDie();
+      setDie2(die2);
+      const spaces = die1 + die2;
       updatePlayer(index, (player) => {
         const newLocation =
           (player.location + spaces) % board.properties.length;
@@ -221,7 +228,8 @@ export default function Monopoly() {
         newPlayer.location = newLocation;
         return newPlayer;
       });
-      setMovedThisTurn(true);
+      setRollsThisTurn((r) => r + 1);
+      setCanRoll(die1 === die2);
     },
     [board.properties.length, updatePlayer]
   );
@@ -237,14 +245,17 @@ export default function Monopoly() {
 
   const endTurn = useCallback(() => {
     setTurn((oldTurn) => (oldTurn + 1) % players.length);
-    setMovedThisTurn(false);
+    setRollsThisTurn(0);
+    setCanRoll(true);
+    setDie1(null);
+    setDie2(null);
   }, [players.length]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       switch (event.key) {
         case "1": {
-          if (!movedThisTurn) {
+          if (canRoll) {
             movePlayer(turn);
           }
           break;
@@ -256,7 +267,7 @@ export default function Monopoly() {
           break;
         }
         case "3": {
-          if (movedThisTurn) {
+          if (rollsThisTurn) {
             endTurn();
           }
           break;
@@ -268,13 +279,14 @@ export default function Monopoly() {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [
+    canRoll,
     currentPlayer,
     currentProperty,
     board.properties,
     playerBuyProperty,
     players,
     movePlayer,
-    movedThisTurn,
+    rollsThisTurn,
     endTurn,
     turn,
   ]);
@@ -287,12 +299,12 @@ export default function Monopoly() {
       </div>
       <div className="flex gap-4 mx-auto">
         <button
-          disabled={movedThisTurn}
-          title={movedThisTurn ? "you have already moved this turn" : undefined}
+          disabled={!canRoll}
+          title={!canRoll ? "you have already moved this turn" : undefined}
           className="px-2 py-0 bg-[#39ad39] disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => movePlayer(turn)}
         >
-          move
+          roll!
         </button>
         <button
           disabled={!canBuyProperty(currentPlayer, players, currentProperty)}
@@ -311,9 +323,9 @@ export default function Monopoly() {
           buy
         </button>
         <button
-          disabled={!movedThisTurn}
+          disabled={!rollsThisTurn}
           title={
-            !movedThisTurn ? "please move before ending your turn" : undefined
+            !rollsThisTurn ? "please move before ending your turn" : undefined
           }
           className="px-2 py-0 bg-[#ad3948] disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={endTurn}
@@ -321,7 +333,17 @@ export default function Monopoly() {
           end turn
         </button>
       </div>
-      <div className="grid gap-2 [grid-template-areas:'jail_top_free'_'left_center_right'_'go_bottom_gotojail']">
+      <div className="flex text-3xl mx-auto gap-2">
+        {die1 != null && die2 != null ? (
+          <>
+            {currentPlayer.name} rolled a <span>{DIE_EMOJIS[die1]}</span>
+            <span>{DIE_EMOJIS[die2]}</span>
+          </>
+        ) : (
+          "roll the dice!"
+        )}
+      </div>
+      <div className="grid gap-2">
         {board.properties.map((property, i) => (
           <div
             key={i}
@@ -365,23 +387,19 @@ export default function Monopoly() {
                 <span className="text-xl">${player.money}</span>
               </div>
               {Array.from(
-                { length: Math.ceil(player.properties.length / 2) },
+                { length: Math.ceil(player.properties.length / 3) },
                 (_, i) => {
                   return (
                     <div
                       key={i}
-                      className="m-auto"
+                      className="flex flex-col gap-0.5 m-auto"
                       style={{ gridArea: `${row} / ${i + 4}` }}
                     >
-                      <PropertyCount property={player.properties[i * 2]} />
-                      {player.properties.length > i * 2 + 1 && (
-                        <>
-                          <br />
-                          <PropertyCount
-                            property={player.properties[i * 2 + 1]}
-                          />
-                        </>
-                      )}
+                      {player.properties
+                        .slice(i * 3, i * 3 + 3)
+                        .map((property, i) => (
+                          <PropertyCount key={i} property={property} />
+                        ))}
                     </div>
                   );
                 }
